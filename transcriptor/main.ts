@@ -22,9 +22,11 @@ export const Transpile = (
 // Глобальні змінні
 let labels: Record<string, number> = {};
 let currentLine = 0;
+let VariableStorage = new Map<string, number | Array<number>>()
 
 const parse = (source: string): string => {
-  labels = {}; 
+  labels = {};
+
   const lines = getLines(source);
 
   
@@ -45,6 +47,7 @@ const parse = (source: string): string => {
     .filter((line): line is string => line !== undefined);
 
   return `
+let VariableStorage = new Map()  
 const labels = ${JSON.stringify(labels)};
 const instructions = [
   ${outputLines.join(',\n  ')}
@@ -76,7 +79,7 @@ const lexing = (line: string): string | undefined => {
       if (res.length < 2) return undefined;
       const varName = res[1];
       const varValue = res[2];
-      return `() => { let ${varName} = ${varValue}; }`;
+      return `() => { VariableStorage.set(${varName}, ${varValue}) }`;
     }
 
     case '@': {
@@ -100,7 +103,10 @@ const lexing = (line: string): string | undefined => {
 
     case '#': {
       if (res.length < 2) return undefined;
-      return `() => { console.log(${res[1]}); }`;
+      if(/\d/.test(res[1])){
+        return `() => { console.log(${res[1]})}`;
+      }
+      return `() => { console.log(VariableStorage.get("${res[1]}")); }`;
     }
 
     case '!': {
@@ -112,15 +118,15 @@ const lexing = (line: string): string | undefined => {
     case '+':
     case '-':
     case '*':
-    case '/': {
+    case '/':
+    case '%': {
       if (res.length < 3) return undefined;
       const op = firstChar;
       return `() => { ${res[1]} = ${res[1]} ${op} ${res[2]}; }`;
     }
-
+    // goto and labels
     case '&': {
       if (res.length < 2) return undefined;
-      // Мітка — нічого не робимо, просто коментар
       return `() => { /* label ${res[1]} */ }`;
     }
 
@@ -129,6 +135,26 @@ const lexing = (line: string): string | undefined => {
       return `() => { jump('${res[1]}'); }`;
     }
 
+
+    //  conditional sigils
+    case '=':
+    case '<':
+    case '>' : {
+      if (res.length < 4) return undefined;
+      const op = firstChar;
+
+      return `() => { let ${res[1]} = (${res[2]} ${op} ${res[3]}) ? 1 : 0 }`;
+    }
+    
+    
+  case ':': {
+    if (res.length < 3) return undefined;
+
+    const target = res[1];
+    const values = res.slice(2).join(' || ');
+
+    return `() => { ${target} = (${values}) ? 1 : 0; }`;
+  }
     default:
       return undefined;
   }
