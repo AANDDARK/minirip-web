@@ -22,7 +22,6 @@ export const Transpile = (
 // Глобальні змінні
 let labels: Record<string, number> = {};
 let currentLine = 0;
-let VariableStorage = new Map<string, number | Array<number>>()
 
 const parse = (source: string): string => {
   labels = {};
@@ -73,13 +72,13 @@ while (pointer < instructions.length) {
 const lexing = (line: string): string | undefined => {
   const res = line.trim().split(/\s+/);
   const firstChar = line.charAt(0);
-
+  // variable sigils
   switch (firstChar) {
     case '$': {
       if (res.length < 2) return undefined;
       const varName = res[1];
       const varValue = res[2];
-      return `() => { VariableStorage.set(${varName}, ${varValue}) }`;
+      return `() => { VariableStorage.set("${varName}", ${varValue}) }`;
     }
 
     case '@': {
@@ -95,12 +94,12 @@ const lexing = (line: string): string | undefined => {
           decodedStr = rawStr;
         }
         const asciiCodes = [...decodedStr].map(c => c.charCodeAt(0));
-        return `() => { let ${varName} = [${asciiCodes.join(', ')}]; }`;
+        return `() => {  VariableStorage.set("${varName}" , [${asciiCodes.join(', ')}])}`;
       } else {
-        return `() => { let ${varName} = [${res.slice(2).join(', ')}]; }`;
+        return `() => {  VariableStorage.set("${varName}", [${res.slice(2).join}])}`;
       }
     }
-
+    // output
     case '#': {
       if (res.length < 2) return undefined;
       if(/\d/.test(res[1])){
@@ -112,17 +111,20 @@ const lexing = (line: string): string | undefined => {
     case '!': {
       if (res.length < 2) return undefined;
       const expr = res.slice(1).join(' ');
-      return `() => { console.log(getTextMiniRipACHIII(${expr})); }`;
+      return `() => { console.log(getTextMiniRipACHIII(VariableStorage.get("${expr}"))); }`;
     }
-
+    // math
     case '+':
     case '-':
     case '*':
     case '/':
     case '%': {
       if (res.length < 3) return undefined;
-      const op = firstChar;
-      return `() => { ${res[1]} = ${res[1]} ${op} ${res[2]}; }`;
+        const op = firstChar;
+       if(/\D/.test(res[2])){
+        return `() => { VariableStorage.set("${res[1]}", VariableStorage.get("${res[1]}") ${op}  VariableStorage.get("${res[2]}")); }`
+       }
+      return `() => { VariableStorage.set("${res[1]}", VariableStorage.get("${res[1]}") ${op} ${res[2]}); }`;
     }
     // goto and labels
     case '&': {
@@ -142,19 +144,58 @@ const lexing = (line: string): string | undefined => {
     case '>' : {
       if (res.length < 4) return undefined;
       const op = firstChar;
-
-      return `() => { let ${res[1]} = (${res[2]} ${op} ${res[3]}) ? 1 : 0 }`;
+      if(op == "="){
+        return `() => { (${res[2]} === ${res[3]}) ? VariableStorage.set("${res[1]}", 1) : VariableStorage.set("${res[1]}", 0) }`;
+      }
+      return `() => { (${res[2]} ${op} ${res[3]}) ? VariableStorage.set("${res[1]}", 1) : VariableStorage.set("${res[1]}", 0) }`;
     }
-    
-    
-  case ':': {
-    if (res.length < 3) return undefined;
 
-    const target = res[1];
-    const values = res.slice(2).join(' || ');
+case ':': {
+  if (res.length < 3) return undefined;
 
-    return `() => { ${target} = (${values}) ? 1 : 0; }`;
-  }
+  const target = res[1];
+  const args = res.slice(2);
+
+  const evaluated = args.map(arg => {
+    if (/\D/.test(arg)) {
+      return `VariableStorage.get("${arg}")`;
+    } else {
+      return `${Number(arg)}`;
+    }
+  });
+
+  return `() => {
+    const values = [${evaluated.join(', ')}];
+    const hasOne = values.some(v => Number(v) === 1);
+    VariableStorage.set("${target}", hasOne ? 1 : 0);
+  }`;
+}
+
+  
+case ';': {
+  if (res.length < 3) return undefined;
+
+  const target = res[1];
+  const args = res.slice(2);
+
+  const evaluated = args.map(arg => {
+    if (/\D/.test(arg)) {
+      const varName = arg.slice(1);
+      return `VariableStorage.get("${varName}")`;
+    } else {
+      return `${Number(arg)}`;
+    }
+  });
+
+  return `() => {
+    const values = [${evaluated.join(', ')}];
+    const allOnes = values.every(v => Number(v) === 1);
+    VariableStorage.set("${target}", allOnes ? 1 : 0);
+  }`;
+}
+
+
+
     default:
       return undefined;
   }
