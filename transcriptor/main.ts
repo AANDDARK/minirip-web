@@ -77,6 +77,9 @@ const lexing = (lines: string[], index: number): { line: string | undefined, ski
       if (res.length < 3) return { line: undefined, skip: 0 };
       const varName = res[1];
       const varValue = res[2];
+      if(/\D/.test(varValue)){
+        return { line: `() => { VariableStorage.set("${varName}", VariableStorage.get("${varValue}")) }`, skip: 0 };
+      }
       return { line: `() => { VariableStorage.set("${varName}", ${varValue}) }`, skip: 0 };
     }
 
