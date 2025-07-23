@@ -109,10 +109,19 @@ const lexing = (line: string): string | undefined => {
     }
 
     case '!': {
-      if (res.length < 2) return undefined;
-      const expr = res.slice(1).join(' ');
-      return `() => { console.log(getTextMiniRipACHIII(VariableStorage.get("${expr}"))); }`;
-    }
+  if (res.length < 2) return undefined;
+
+  const expr = res.slice(1).join(' ').trim();
+
+  const quote = expr[0];
+  if ((quote === '"' || quote === "'") && expr.endsWith(quote)) {
+
+    return `() => { console.log(${expr}) }`;
+  }
+
+  return `() => { console.log(getTextMiniRipACHIII(VariableStorage.get("${expr}"))); }`;
+}
+
     // math
     case '+':
     case '-':
