@@ -21,14 +21,12 @@ export const Transpile = (
 
 // Глобальні змінні
 let labels: Record<string, number> = {};
-let currentLine = 0;
+
 
 const parse = (source: string): string => {
   labels = {};
-
   const lines = getLines(source);
 
-  
   lines.forEach((line, index) => {
     const res = line.trim().split(/\s+/);
     if (res[0] === '&' && res.length >= 2) {
@@ -36,17 +34,16 @@ const parse = (source: string): string => {
     }
   });
 
-  currentLine = 0;
-  const outputLines = lines
-    .map((line) => {
-      const result = lexing(line);
-      currentLine++;
-      return result;
-    })
-    .filter((line): line is string => line !== undefined);
+  const outputLines: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const { line, skip } = lexing(lines, i) ?? { line: undefined, skip: 0 };
+    if (line) outputLines.push(line);
+    i += skip;
+  }
 
   return `
-let VariableStorage = new Map()  
+let VariableStorage = new Map();
 const labels = ${JSON.stringify(labels)};
 const instructions = [
   ${outputLines.join(',\n  ')}
@@ -69,20 +66,22 @@ while (pointer < instructions.length) {
 `;
 };
 
-const lexing = (line: string): string | undefined => {
+
+const lexing = (lines: string[], index: number): { line: string | undefined, skip: number } => {
+  const line = lines[index];
   const res = line.trim().split(/\s+/);
   const firstChar = line.charAt(0);
-  // variable sigils
+
   switch (firstChar) {
     case '$': {
-      if (res.length < 2) return undefined;
+      if (res.length < 3) return { line: undefined, skip: 0 };
       const varName = res[1];
       const varValue = res[2];
-      return `() => { VariableStorage.set("${varName}", ${varValue}) }`;
+      return { line: `() => { VariableStorage.set("${varName}", ${varValue}) }`, skip: 0 };
     }
 
     case '@': {
-      if (res.length < 2) return undefined;
+      if (res.length < 3) return { line: undefined, skip: 0 };
       const varName = res[1];
       const joined = res.slice(2).join(' ');
       if (joined.startsWith('"') || joined.startsWith("'")) {
@@ -94,120 +93,139 @@ const lexing = (line: string): string | undefined => {
           decodedStr = rawStr;
         }
         const asciiCodes = [...decodedStr].map(c => c.charCodeAt(0));
-        return `() => {  VariableStorage.set("${varName}" , [${asciiCodes.join(', ')}])}`;
+        return { line: `() => { VariableStorage.set("${varName}", [${asciiCodes.join(', ')}]) }`, skip: 0 };
       } else {
-        return `() => {  VariableStorage.set("${varName}", [${res.slice(2).join}])}`;
+        return { line: `() => { VariableStorage.set("${varName}", [${res.slice(2).join(', ')}]) }`, skip: 0 };
       }
     }
-    // output
+
     case '#': {
-      if (res.length < 2) return undefined;
-      if(/\d/.test(res[1])){
-        return `() => { console.log(${res[1]})}`;
+      if (res.length < 2) return { line: undefined, skip: 0 };
+      if (/^\d+$/.test(res[1])) {
+        return { line: `() => { console.log(${res[1]}) }`, skip: 0 };
       }
-      return `() => { console.log(VariableStorage.get("${res[1]}")); }`;
+      return { line: `() => { console.log(VariableStorage.get("${res[1]}")) }`, skip: 0 };
     }
 
     case '!': {
-  if (res.length < 2) return undefined;
+      if (res.length < 2) return { line: undefined, skip: 0 };
+      const expr = res.slice(1).join(' ').trim();
+      const quote = expr[0];
+      if ((quote === '"' || quote === "'") && expr.endsWith(quote)) {
+        return { line: `() => { console.log(${expr}) }`, skip: 0 };
+      }
+      return { line: `() => { console.log(getTextMiniRipACHIII(VariableStorage.get("${expr}"))) }`, skip: 0 };
+    }
 
-  const expr = res.slice(1).join(' ').trim();
-
-  const quote = expr[0];
-  if ((quote === '"' || quote === "'") && expr.endsWith(quote)) {
-
-    return `() => { console.log(${expr}) }`;
-  }
-
-  return `() => { console.log(getTextMiniRipACHIII(VariableStorage.get("${expr}"))); }`;
-}
-
-    // math
+    // math operators: +, -, *, /, %
     case '+':
     case '-':
     case '*':
     case '/':
     case '%': {
-      if (res.length < 3) return undefined;
-        const op = firstChar;
-       if(/\D/.test(res[2])){
-        return `() => { VariableStorage.set("${res[1]}", VariableStorage.get("${res[1]}") ${op}  VariableStorage.get("${res[2]}")); }`
-       }
-      return `() => { VariableStorage.set("${res[1]}", VariableStorage.get("${res[1]}") ${op} ${res[2]}); }`;
+      if (res.length < 3) return { line: undefined, skip: 0 };
+      const op = firstChar;
+      const rightOperand = /\D/.test(res[2]) ? `VariableStorage.get("${res[2]}")` : res[2];
+      return {
+        line: `() => { VariableStorage.set("${res[1]}", VariableStorage.get("${res[1]}") ${op} ${rightOperand}) }`,
+        skip: 0
+      };
     }
-    // goto and labels
+
+    // label definition
     case '&': {
-      if (res.length < 2) return undefined;
-      return `() => { /* label ${res[1]} */ }`;
+      if (res.length < 2) return { line: undefined, skip: 0 };
+      return { line: `() => { /* label ${res[1]} */ }`, skip: 0 };
     }
 
+    // jump to label
     case '^': {
-      if (res.length < 2) return undefined;
-      return `() => { jump('${res[1]}'); }`;
+      if (res.length < 2) return { line: undefined, skip: 0 };
+      return { line: `() => { jump('${res[1]}') }`, skip: 0 };
     }
 
-
-    //  conditional sigils
+    // conditional sigils: =, <, >
     case '=':
     case '<':
-    case '>' : {
-      if (res.length < 4) return undefined;
+    case '>': {
+      if (res.length < 4) return { line: undefined, skip: 0 };
       const op = firstChar;
-      if(op == "="){
-        return `() => { (${res[2]} === ${res[3]}) ? VariableStorage.set("${res[1]}", 1) : VariableStorage.set("${res[1]}", 0) }`;
+      const left = /\D/.test(res[2]) ? `VariableStorage.get("${res[2]}")` : res[2];
+      const right = /\D/.test(res[3]) ? `VariableStorage.get("${res[3]}")` : res[3];
+      return {
+        line: `() => { (${left} ${op} ${right}) ? VariableStorage.set("${res[1]}", 1) : VariableStorage.set("${res[1]}", 0) }`,
+        skip: 0
+      };
+    }
+
+    // OR operation ':'
+    case ':': {
+      if (res.length < 3) return { line: undefined, skip: 0 };
+      const target = res[1];
+      const args = res.slice(2).map(arg =>
+        /\D/.test(arg) ? `VariableStorage.get("${arg}")` : `${Number(arg)}`
+      );
+      return {
+        line: `() => {
+  const values = [${args.join(', ')}];
+  const hasOne = values.some(v => Number(v) === 1);
+  VariableStorage.set("${target}", hasOne ? 1 : 0);
+}`,
+        skip: 0
+      };
+    }
+
+    // AND operation ';'
+    case ';': {
+      if (res.length < 3) return { line: undefined, skip: 0 };
+      const target = res[1];
+      const args = res.slice(2).map(arg =>
+        /\D/.test(arg) ? `VariableStorage.get("${arg}")` : `${Number(arg)}`
+      );
+      return {
+        line: `() => {
+  const values = [${args.join(', ')}];
+  const allOnes = values.every(v => Number(v) === 1);
+  VariableStorage.set("${target}", allOnes ? 1 : 0);
+}`,
+        skip: 0
+      };
+    }
+
+    // run-if '?' — виконує наступні N інструкцій, якщо перший аргумент == 1
+    case '?': {
+      if (res.length < 3) return { line: undefined, skip: 0 };
+      const condition = res[1];
+      const count = parseInt(res[2]);
+      const thenLines: string[] = [];
+
+      for (let j = 1; j <= count; j++) {
+        if (index + j >= lines.length) break;
+        const result = lexing(lines, index + j);
+        if (result?.line) {
+          // Видаляємо "() => { ... }"
+          const body = result.line.trim().replace(/^.*?\{([\s\S]*)\}$/, '$1').trim();
+          thenLines.push(body);
+        }
       }
-      return `() => { (${res[2]} ${op} ${res[3]}) ? VariableStorage.set("${res[1]}", 1) : VariableStorage.set("${res[1]}", 0) }`;
-    }
 
-case ':': {
-  if (res.length < 3) return undefined;
-
-  const target = res[1];
-  const args = res.slice(2);
-
-  const evaluated = args.map(arg => {
-    if (/\D/.test(arg)) {
-      return `VariableStorage.get("${arg}")`;
-    } else {
-      return `${Number(arg)}`;
-    }
-  });
-
-  return `() => {
-    const values = [${evaluated.join(', ')}];
-    const hasOne = values.some(v => Number(v) === 1);
-    VariableStorage.set("${target}", hasOne ? 1 : 0);
-  }`;
+      const block = `
+() => {
+  const cond = isNaN(${condition}) ? VariableStorage.get("${condition}") : Number(${condition});
+  if (cond === 1) {
+    ${thenLines.join('\n    ')}
+  }
 }
+`.trim();
 
-  
-case ';': {
-  if (res.length < 3) return undefined;
-
-  const target = res[1];
-  const args = res.slice(2);
-
-  const evaluated = args.map(arg => {
-    if (/\D/.test(arg)) {
-      const varName = arg.slice(1);
-      return `VariableStorage.get("${varName}")`;
-    } else {
-      return `${Number(arg)}`;
+      return { line: block, skip: count };
     }
-  });
-
-  return `() => {
-    const values = [${evaluated.join(', ')}];
-    const allOnes = values.every(v => Number(v) === 1);
-    VariableStorage.set("${target}", allOnes ? 1 : 0);
-  }`;
-}
-
-
 
     default:
-      return undefined;
+      return { line: undefined, skip: 0 };
   }
 };
+
+
 
 const getLines = (source: string): string[] => source.trim().split('\n');
