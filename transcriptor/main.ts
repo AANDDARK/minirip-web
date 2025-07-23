@@ -153,10 +153,14 @@ const lexing = (lines: string[], index: number): { line: string | undefined, ski
     case '>': {
       if (res.length < 4) return { line: undefined, skip: 0 };
       const op = firstChar;
+      let jsOp;
+      if (op === "=") {
+        jsOp = "===";
+      }
       const left = /\D/.test(res[2]) ? `VariableStorage.get("${res[2]}")` : res[2];
       const right = /\D/.test(res[3]) ? `VariableStorage.get("${res[3]}")` : res[3];
       return {
-        line: `() => { (${left} ${op} ${right}) ? VariableStorage.set("${res[1]}", 1) : VariableStorage.set("${res[1]}", 0) }`,
+        line: `() => { (${left} ${jsOp} ${right}) ? VariableStorage.set("${res[1]}", 1) : VariableStorage.set("${res[1]}", 0) }`,
         skip: 0
       };
     }
@@ -198,7 +202,12 @@ const lexing = (lines: string[], index: number): { line: string | undefined, ski
     // run-if '?' — виконує наступні N інструкцій, якщо перший аргумент == 1
     case '?': {
       if (res.length < 3) return { line: undefined, skip: 0 };
-      const condition = res[1];
+     let condition: string | number;
+      if (/\D/.test(res[1])) { 
+        condition  = `"${res[1]}"`;
+      }  else {
+          condition = parseInt(res[1]);
+      }
       const count = parseInt(res[2]);
       const thenLines: string[] = [];
 
@@ -214,7 +223,7 @@ const lexing = (lines: string[], index: number): { line: string | undefined, ski
 
       const block = `
 () => {
-  const cond = isNaN(${condition}) ? VariableStorage.get("${condition}") : Number(${condition});
+  const cond = isNaN(${condition}) ? VariableStorage.get(${condition}) : Number(${condition});
   if (cond === 1) {
     ${thenLines.join('\n    ')}
   }
