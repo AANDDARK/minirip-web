@@ -121,19 +121,39 @@ const lexing = (lines: string[], index: number): { line: string | undefined, ski
     }
 
     // math operators: +, -, *, /, %
-    case '+':
-    case '-':
-    case '*':
-    case '/':
-    case '%': {
-      if (res.length < 3) return { line: undefined, skip: 0 };
-      const op = firstChar;
-      const rightOperand = /\D/.test(res[2]) ? `VariableStorage.get("${res[2]}")` : res[2];
-      return {
-        line: `() => { VariableStorage.set("${res[1]}", VariableStorage.get("${res[1]}") ${op} ${rightOperand}) }`,
-        skip: 0
-      };
-    }
+   case '+':
+case '-':
+case '*':
+case '/':
+case '%': {
+  if (res.length < 3) return { line: undefined, skip: 0 };
+  const op = firstChar;
+
+  
+  const rightOperand = /\D/.test(res[2]) 
+    ? `VariableStorage.get("${res[2]}")` 
+    : res[2];
+
+  return {
+    line: `() => {
+      const leftVal = VariableStorage.get("${res[1]}");
+      const rightVal = ${rightOperand};
+      
+      if (Array.isArray(leftVal) && !Array.isArray(rightVal)) {
+        // leftVal — массив, rightVal — скаляр: применяем операцию к каждому элементу массива
+        VariableStorage.set("${res[1]}", leftVal.map(e => e ${op} rightVal));
+      } else if (!Array.isArray(leftVal) && !Array.isArray(rightVal)) {
+        // оба скаляры
+        VariableStorage.set("${res[1]}", leftVal ${op} rightVal);
+      } else {
+        // другие случаи — например, массив + массив или скаляр + массив — можно расширить логику при необходимости
+        throw new Error("Unsupported operation for given operand types");
+      }
+    }`,
+    skip: 0
+  };
+}
+
 
     // label definition
     case '&': {
@@ -199,7 +219,7 @@ const lexing = (lines: string[], index: number): { line: string | undefined, ski
       };
     }
 
-    // run-if '?' — виконує наступні N інструкцій, якщо перший аргумент == 1
+    
     case '?': {
       if (res.length < 3) return { line: undefined, skip: 0 };
      let condition: string | number;
@@ -232,7 +252,10 @@ const lexing = (lines: string[], index: number): { line: string | undefined, ski
 
       return { line: block, skip: count };
     }
-
+    case "|": {
+      const block = `() => {VariableStorage.set("${res[1]}", toASCII(prompt("please input a value of ${res[1]}")))}`
+      return {line: block, skip: 0}
+    }
     default:
       return { line: undefined, skip: 0 };
   }

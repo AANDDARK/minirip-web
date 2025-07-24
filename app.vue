@@ -10,7 +10,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { Transpile } from './transcriptor/main'
-import { getTextMiniRipACHIII } from './transcriptor/utils'
+import { getTextMiniRipACHIII, toASCII } from './transcriptor/utils'
 
 const txValue = ref('')
 
@@ -21,6 +21,7 @@ const execute = () => {
 }
   onMounted(() => {
     (window as any).getTextMiniRipACHIII = getTextMiniRipACHIII;
+    (window as any).toASCII = toASCII;
 })
 </script>
 
