@@ -253,9 +253,33 @@ case '%': {
       return { line: block, skip: count };
     }
     case "|": {
+      if(res.length < 2 || res.length > 2) return { line: undefined, skip: 0 };
       const block = `() => {VariableStorage.set("${res[1]}", toASCII(prompt("please input a value of ${res[1]}")))}`
       return {line: block, skip: 0}
     }
+    case ".": {
+  let block = "";
+
+  if (res[4] == 0) {
+    block = `() => {
+  VariableStorage.set("${res[1]}", VariableStorage.get("${res[2]}").filter(item => item !== ${res[3]}));
+}`;
+  } else if (res[4] == 1) {
+    block = `() => {
+  const collection = VariableStorage.get("${res[2]}");
+  const index = ${res[3]} - 1; // Lua-style to JS index (1-based to 0-based)
+  const item = collection[index];
+  if (index >= 0 && index < collection.length) {
+    collection.splice(index, 1); // remove 1 item at index
+  }
+  VariableStorage.set("${res[2]}", collection);
+  VariableStorage.set("${res[1]}", item);
+}`;
+  }
+
+  return { line: block, skip: 0 };
+}
+
     default:
       return { line: undefined, skip: 0 };
   }
