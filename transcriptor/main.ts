@@ -13,6 +13,7 @@ export const Transpile = (
 
   if (isRunning) {
     console.log(code);
+// oxlint-disable-next-line no-eval
     return eval(code);
   } else {
     return code;
@@ -87,6 +88,9 @@ const lexing = (lines: string[], index: number): { line: string | undefined, ski
       if (res.length < 3) return { line: undefined, skip: 0 };
       const varName = res[1];
       const joined = res.slice(2).join(' ');
+      if(/\D/.test(res[2])){
+        return { line: `() => { VariableStorage.set("${varName}", VariableStorage.get("${res[2]}")) }`, skip: 0 };
+      }
       if (joined.startsWith('"') || joined.startsWith("'")) {
         const rawStr = joined.slice(1, -1);
         let decodedStr = '';
@@ -140,13 +144,11 @@ case '%': {
       const rightVal = ${rightOperand};
       
       if (Array.isArray(leftVal) && !Array.isArray(rightVal)) {
-        // leftVal — массив, rightVal — скаляр: применяем операцию к каждому элементу массива
         VariableStorage.set("${res[1]}", leftVal.map(e => e ${op} rightVal));
       } else if (!Array.isArray(leftVal) && !Array.isArray(rightVal)) {
-        // оба скаляры
+       
         VariableStorage.set("${res[1]}", leftVal ${op} rightVal);
       } else {
-        // другие случаи — например, массив + массив или скаляр + массив — можно расширить логику при необходимости
         throw new Error("Unsupported operation for given operand types");
       }
     }`,
@@ -176,6 +178,8 @@ case '%': {
       let jsOp;
       if (op === "=") {
         jsOp = "===";
+      } else {
+        jsOp = firstChar
       }
       const left = /\D/.test(res[2]) ? `VariableStorage.get("${res[2]}")` : res[2];
       const right = /\D/.test(res[3]) ? `VariableStorage.get("${res[3]}")` : res[3];
@@ -220,51 +224,50 @@ case '%': {
     }
 
     
+
     case '?': {
-      if (res.length < 3) return { line: undefined, skip: 0 };
-     let condition: string | number;
-      if (/\D/.test(res[1])) { 
-        condition  = `"${res[1]}"`;
-      }  else {
-          condition = parseInt(res[1]);
-      }
-      const count = parseInt(res[2]);
-      const thenLines: string[] = [];
+  if (res.length < 3) return { line: undefined, skip: 0 };
+  const isVar = /\D/.test(res[1]);
+  const condition = res[1];
+  const count = parseInt(res[2]);
+  const thenLines: string[] = [];
 
-      for (let j = 1; j <= count; j++) {
-        if (index + j >= lines.length) break;
-        const result = lexing(lines, index + j);
-        if (result?.line) {
-          // Видаляємо "() => { ... }"
-          const body = result.line.trim().replace(/^.*?\{([\s\S]*)\}$/, '$1').trim();
-          thenLines.push(body);
-        }
-      }
+  for (let j = 1; j <= count; j++) {
+    if (index + j >= lines.length) break;
+    const result = lexing(lines, index + j);
+    if (result?.line) {
+      const body = result.line.trim().replace(/^.*?\{([\s\S]*)\}$/, '$1').trim();
+      thenLines.push(body);
+    }
+  }
 
-      const block = `
+  const block = `
 () => {
-  const cond = isNaN(${condition}) ? VariableStorage.get(${condition}) : Number(${condition});
+  const cond = ${isVar ? `VariableStorage.get("${condition}")` : Number(condition)};
   if (cond === 1) {
     ${thenLines.join('\n    ')}
   }
 }
 `.trim();
 
-      return { line: block, skip: count };
-    }
+  return { line: block, skip: count };
+}
+
+
+
     case "|": {
-      if(res.length < 2 || res.length > 2) return { line: undefined, skip: 0 };
+      if(res.length != 2) return { line: undefined, skip: 0 };
       const block = `() => {VariableStorage.set("${res[1]}", toASCII(prompt("please input a value of ${res[1]}")))}`
       return {line: block, skip: 0}
     }
     case ".": {
   let block = "";
 
-  if (res[4] == 0) {
+  if (res[4] == '0') {
     block = `() => {
   VariableStorage.set("${res[1]}", VariableStorage.get("${res[2]}").filter(item => item !== ${res[3]}));
 }`;
-  } else if (res[4] == 1) {
+  } else if (res[4] == '1') {
     block = `() => {
   const collection = VariableStorage.get("${res[2]}");
   const index = ${res[3]} - 1; // Lua-style to JS index (1-based to 0-based)
